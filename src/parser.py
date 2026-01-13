@@ -220,6 +220,7 @@ def extract_show_name(title: str) -> str:
     - "Show Name: Episode Title"
     - "Show Name - Episode Title"
     - "[Show Name] Episode Title"
+    - "ALERT! ... Show Name ..." (alert-style titles)
     
     Args:
         title: Episode title from the RSS feed
@@ -227,25 +228,13 @@ def extract_show_name(title: str) -> str:
     Returns:
         Normalized show name (lowercase, hyphenated)
     """
-    # Try different patterns to extract show name
-    patterns = [
-        r'^([^:]+):\s*',      # "Show Name: Episode"
-        r'^([^-]+)-\s*',      # "Show Name - Episode"
-        r'^\[([^\]]+)\]\s*',  # "[Show Name] Episode"
-        r'^([^|]+)\|\s*',     # "Show Name | Episode"
-    ]
-    
-    for pattern in patterns:
-        match = re.match(pattern, title)
-        if match:
-            show_name = match.group(1).strip()
-            return normalize_show_name(show_name)
-    
-    # If no pattern matches, try to identify known shows
+    # First, try to identify known shows anywhere in the title
+    # This handles alert-style titles like "🚨PREMIERE ALERT! Watch Dimension 20: Gladlands NOW!"
     known_shows = {
         'dimension 20': 'dimension-20',
         'game changer': 'game-changer',
         'um actually': 'um-actually',
+        'um, actually': 'um-actually',  # Handle comma variant
         'breaking news': 'breaking-news',
         'rats rent a shop': 'rats-rent-a-shop',
         'very important people': 'very-important-people',
@@ -259,6 +248,20 @@ def extract_show_name(title: str) -> str:
     for show_key, show_slug in known_shows.items():
         if show_key in title_lower:
             return show_slug
+    
+    # If no known show found, try different patterns to extract show name
+    patterns = [
+        r'^([^:]+):\s*',      # "Show Name: Episode"
+        r'^([^-]+)-\s*',      # "Show Name - Episode"
+        r'^\[([^\]]+)\]\s*',  # "[Show Name] Episode"
+        r'^([^|]+)\|\s*',     # "Show Name | Episode"
+    ]
+    
+    for pattern in patterns:
+        match = re.match(pattern, title)
+        if match:
+            show_name = match.group(1).strip()
+            return normalize_show_name(show_name)
     
     # Default: use first part of title before any delimiter
     first_part = re.split(r'[:\-\|\[\]]', title)[0].strip()
