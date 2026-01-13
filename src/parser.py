@@ -4,8 +4,133 @@ Parser module for extracting episodes and identifying shows from the RSS feed
 
 import feedparser
 import re
+import xml.etree.ElementTree as ET
 from typing import List, Dict, Any
 from datetime import datetime
+from html.parser import HTMLParser
+import html as html_module
+
+
+class ShowExtractor(HTMLParser):
+    """HTML parser to extract show information from weekly newsletters."""
+    
+    def __init__(self):
+        super().__init__()
+        self.shows = []
+        self.current_show = None
+        self.in_show_heading = False
+        self.in_show_body = False
+        self.show_body_text = []
+        self.capture_depth = 0
+        
+    def handle_starttag(self, tag, attrs):
+        attrs_dict = dict(attrs)
+        # Look for show heading elements
+        if attrs_dict.get('data-hs-cos-field') == 'show_info.show_heading':
+            self.in_show_heading = True
+            if self.current_show and self.current_show.get('title'):
+                # Save previous show before starting a new one
+                self.shows.append(self.current_show)
+            self.current_show = {'title': '', 'description': ''}
+        # Look for show body elements
+        elif attrs_dict.get('data-hs-cos-field') == 'show_info.show_body':
+            self.in_show_body = True
+            self.show_body_text = []
+            self.capture_depth = 0
+        elif self.in_show_body:
+            self.capture_depth += 1
+            
+    def handle_endtag(self, tag):
+        if self.in_show_heading:
+            self.in_show_heading = False
+        elif self.in_show_body:
+            if self.capture_depth > 0:
+                self.capture_depth -= 1
+            else:
+                # End of show body
+                self.in_show_body = False
+                if self.current_show and self.show_body_text:
+                    self.current_show['description'] = ' '.join(self.show_body_text)
+    
+    def handle_data(self, data):
+        if self.in_show_heading:
+            self.current_show['title'] = data.strip()
+        elif self.in_show_body and data.strip():
+            self.show_body_text.append(data.strip())
+    
+    def get_shows(self):
+        """Get all extracted shows, including the last one if not yet added."""
+        if self.current_show and self.current_show.get('title'):
+            if not self.shows or self.shows[-1] != self.current_show:
+                self.shows.append(self.current_show)
+        return self.shows
+
+
+def is_confirmation_email(title: str) -> bool:
+    """Check if this is a confirmation/setup email that should be ignored."""
+    confirmation_keywords = [
+        'please confirm',
+        'confirm your mailbox',
+        'kill-the-newsletter.com'
+    ]
+    title_lower = title.lower()
+    return any(keyword in title_lower for keyword in confirmation_keywords)
+
+
+def is_weekly_newsletter(title: str, description: str) -> bool:
+    """
+    Detect if this is a weekly newsletter containing multiple shows.
+    
+    Weekly newsletters typically have:
+    - "This week on Dropout" in the content
+    - Multiple show headings in the HTML
+    """
+    # Check for weekly newsletter indicators
+    if 'this week on dropout' in description.lower():
+        return True
+    
+    # Check if HTML contains multiple show headings
+    if 'data-hs-cos-field="show_info.show_heading"' in description:
+        # Count how many show headings are present
+        count = description.count('data-hs-cos-field="show_info.show_heading"')
+        return count >= 2  # At least 2 shows indicates weekly newsletter
+    
+    return False
+
+
+def extract_shows_from_newsletter(entry_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Extract individual shows from a weekly newsletter email.
+    
+    Args:
+        entry_data: Entry dictionary with title, description, link, etc.
+        
+    Returns:
+        List of episode dictionaries, one per show
+    """
+    description = entry_data['description']
+    
+    # Parse HTML to extract shows
+    parser = ShowExtractor()
+    parser.feed(description)
+    
+    episodes = []
+    for show_info in parser.get_shows():
+        show_title = show_info['title']
+        show_desc = show_info.get('description', '')
+        
+        # Create an episode for this show
+        episode = {
+            'title': show_title,
+            'description': show_desc,
+            'link': entry_data['link'],
+            'pub_date': entry_data['pub_date'],
+            'guid': f"{entry_data['guid']}-{normalize_show_name(show_title)}",
+            'show_name': extract_show_name(show_title)
+        }
+        episodes.append(episode)
+    
+    return episodes
 
 
 def parse_episodes(feed_content: str) -> List[Dict[str, Any]]:
@@ -18,23 +143,64 @@ def parse_episodes(feed_content: str) -> List[Dict[str, Any]]:
     Returns:
         List of episode dictionaries with parsed information
     """
+    # Use feedparser for basic parsing
     feed = feedparser.parse(feed_content)
     episodes = []
     
+    # Also parse raw XML to get unescaped HTML content
+    try:
+        root = ET.fromstring(feed_content)
+        # Handle both RSS and Atom feeds
+        namespaces = {'atom': 'http://www.w3.org/2005/Atom'}
+        entries = root.findall('.//atom:entry', namespaces)
+        
+        # Create a mapping of entry IDs to raw HTML content
+        raw_content_map = {}
+        for entry_elem in entries:
+            entry_id = entry_elem.find('atom:id', namespaces)
+            content_elem = entry_elem.find('atom:content', namespaces)
+            if entry_id is not None and content_elem is not None:
+                # Unescape HTML entities
+                raw_html = html_module.unescape(content_elem.text or '')
+                raw_content_map[entry_id.text] = raw_html
+    except Exception as e:
+        # If XML parsing fails, fall back to feedparser only
+        raw_content_map = {}
+    
     for entry in feed.entries:
-        episode = {
+        # Get raw HTML content if available
+        entry_id = entry.get('id', '')
+        description = raw_content_map.get(entry_id, '')
+        
+        # Fall back to feedparser's content if raw parsing failed
+        if not description:
+            if hasattr(entry, 'content') and entry.content:
+                description = entry.content[0].get('value', '')
+            if not description:
+                description = entry.get('description', '') or entry.get('summary', '')
+        
+        entry_data = {
             'title': entry.get('title', ''),
-            'description': entry.get('description', '') or entry.get('summary', ''),
+            'description': description,
             'link': entry.get('link', ''),
             'pub_date': entry.get('published', '') or entry.get('updated', ''),
             'guid': entry.get('id', entry.get('link', '')),
         }
         
-        # Extract show name from the title
-        show_name = extract_show_name(episode['title'])
-        episode['show_name'] = show_name
+        # Skip confirmation emails
+        if is_confirmation_email(entry_data['title']):
+            continue
         
-        episodes.append(episode)
+        # Check if this is a weekly newsletter with multiple shows
+        if is_weekly_newsletter(entry_data['title'], entry_data['description']):
+            # Extract individual shows from the newsletter
+            newsletter_episodes = extract_shows_from_newsletter(entry_data)
+            episodes.extend(newsletter_episodes)
+        else:
+            # Single show email - process normally
+            episode = entry_data.copy()
+            episode['show_name'] = extract_show_name(episode['title'])
+            episodes.append(episode)
     
     return episodes
 
