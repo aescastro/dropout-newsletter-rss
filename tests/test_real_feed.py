@@ -4,6 +4,7 @@ Test the parser with the real RSS feed sample from the Samples directory
 
 import sys
 import os
+import tempfile
 from pathlib import Path
 
 # Add parent directory to path
@@ -13,18 +14,28 @@ from src.parser import parse_episodes, group_episodes_by_show
 from src.generator import generate_rss_feed, generate_all_shows_feed
 
 
-def test_parse_real_rss_feed():
-    """Test parsing the real RSS feed sample."""
-    print("Testing with real RSS feed sample...")
+def load_real_feed():
+    """
+    Helper function to load the real RSS feed sample.
     
-    # Load the real RSS feed sample
+    Returns:
+        str: The RSS feed content
+    """
     samples_dir = Path(__file__).parent.parent / 'Samples'
     feed_file = samples_dir / 'Dropout kill-the-newsletter.xml'
     
     assert feed_file.exists(), f"Sample feed file not found: {feed_file}"
     
     with open(feed_file, 'r', encoding='utf-8') as f:
-        feed_content = f.read()
+        return f.read()
+
+
+def test_parse_real_rss_feed():
+    """Test parsing the real RSS feed sample."""
+    print("Testing with real RSS feed sample...")
+    
+    # Load the real RSS feed sample
+    feed_content = load_real_feed()
     
     # Parse episodes
     episodes = parse_episodes(feed_content)
@@ -57,13 +68,8 @@ def test_group_real_episodes():
     """Test grouping episodes from real feed by show."""
     print("\nTesting episode grouping...")
     
-    # Get episodes from previous test
-    samples_dir = Path(__file__).parent.parent / 'Samples'
-    feed_file = samples_dir / 'Dropout kill-the-newsletter.xml'
-    
-    with open(feed_file, 'r', encoding='utf-8') as f:
-        feed_content = f.read()
-    
+    # Load and parse real feed
+    feed_content = load_real_feed()
     episodes = parse_episodes(feed_content)
     
     # Group by show
@@ -85,12 +91,7 @@ def test_generate_feeds_from_real_data():
     print("\nTesting feed generation...")
     
     # Load and parse real feed
-    samples_dir = Path(__file__).parent.parent / 'Samples'
-    feed_file = samples_dir / 'Dropout kill-the-newsletter.xml'
-    
-    with open(feed_file, 'r', encoding='utf-8') as f:
-        feed_content = f.read()
-    
+    feed_content = load_real_feed()
     episodes = parse_episodes(feed_content)
     shows = group_episodes_by_show(episodes)
     
@@ -109,8 +110,8 @@ def test_generate_feeds_from_real_data():
     assert '<rss' in all_shows_xml, "All-shows feed missing RSS tag"
     print(f"✓ Generated all-shows feed ({len(all_shows_xml)} chars)")
     
-    # Optionally write to test output directory
-    output_dir = Path('/tmp/test-real-feed-output')
+    # Optionally write to test output directory (using tempfile for cross-platform compatibility)
+    output_dir = Path(tempfile.gettempdir()) / 'test-real-feed-output'
     output_dir.mkdir(exist_ok=True)
     
     for show_name, show_episodes in shows.items():
