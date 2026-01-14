@@ -62,7 +62,7 @@ jobs:
             fi
             
             if [ $attempt -lt $max_attempts ]; then
-              # Wait before retrying (linear backoff: 10s, 20s)
+              # Wait before retrying (linear backoff: 10s on retry 1, 20s on retry 2)
               wait_time=$((10 * attempt))
               echo "⚠ Attempt failed. Waiting ${wait_time}s before retry..."
               sleep $wait_time
