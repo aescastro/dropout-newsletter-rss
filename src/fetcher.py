@@ -34,3 +34,6 @@ def fetch_feed(url: str, max_retries: int = 3, timeout: int = 30) -> Optional[st
             else:
                 print(f"Error fetching feed from {url}: {e} (after {max_retries} attempts)")
                 return None
+    
+    # Should never reach here, but included for type safety
+    return None
