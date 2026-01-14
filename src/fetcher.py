@@ -26,6 +26,7 @@ def fetch_feed(url: str, max_retries: int = 3, timeout: int = 30) -> Optional[st
             return response.text
         except requests.exceptions.RequestException as e:
             # Retry on transient errors (timeouts, connection, DNS, server errors)
+            # Note: 4xx client errors are permanent and not retried
             if attempt < max_retries:
                 wait_time = 5 * attempt  # Linear backoff: 5s, 10s
                 error_type = "Timeout" if isinstance(e, requests.exceptions.Timeout) else "Error"
@@ -34,6 +35,3 @@ def fetch_feed(url: str, max_retries: int = 3, timeout: int = 30) -> Optional[st
             else:
                 print(f"Error fetching feed from {url}: {e} (after {max_retries} attempts)")
                 return None
-    
-    # Should never reach here, but included for type safety
-    return None
