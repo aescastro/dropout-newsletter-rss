@@ -142,7 +142,11 @@ def main():
         sys.exit(1)
     
     # Run transformation
-    transform_feed(feed_url, output_dir, base_url, timezone_offset)
+    feed_files = transform_feed(feed_url, output_dir, base_url, timezone_offset)
+    
+    # Exit with error if no feeds were generated
+    if not feed_files:
+        sys.exit(1)
 
 
 if __name__ == '__main__':
