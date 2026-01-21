@@ -81,7 +81,7 @@ jobs:
         continue-on-error: true
         env:
           KILL_THE_NEWSLETTER_URL: ${{ secrets.KILL_THE_NEWSLETTER_URL }}
-          TIMEZONE_OFFSET: ${{ vars.TIMEZONE_OFFSET }}
+          TIMEZONE_OFFSET: ${{ secrets.TIMEZONE_OFFSET }}
         run: |
           # Retry up to 3 times with linear backoff for transient failures
           max_attempts=3
